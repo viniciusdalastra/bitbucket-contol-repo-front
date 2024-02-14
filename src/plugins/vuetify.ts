@@ -1,28 +1,20 @@
 // Styles
-import "@mdi/font/css/materialdesignicons.css";
+import 'material-design-icons-iconfont/dist/material-design-icons.css'
 import "vuetify/styles";
 import * as components from "vuetify/components";
 import * as directives from "vuetify/directives";
-import colors from "vuetify/util/colors";
-
+import { aliases, md } from "vuetify/iconsets/md";
 // Vuetify
-import { createVuetify, type ThemeDefinition } from "vuetify";
-
-const customTheme: ThemeDefinition = {
-  dark: false,
-  colors: {
-    primary: '#9B37FB',
-    background: '#000000'
-  },
-};
+import { createVuetify } from "vuetify";
 
 export default createVuetify({
   components,
   directives,
-  theme: {
-    defaultTheme: "customTheme",
-    themes: {
-      customTheme,
+  icons: {
+    defaultSet: "md",
+    aliases,
+    sets: {
+      md,
     },
   },
 });
