@@ -1,130 +1,234 @@
-import { ref, computed, type Ref } from "vue";
+import { ref, type Ref } from "vue";
 import { defineStore } from "pinia";
 import axios from "axios";
-import type BitBucketRequestI from "@/interfaces/bitbucket-request";
 import { useLoginStore } from "./login";
 
-interface RepositoryTuple {
-  repository: Repository;
-}
 export interface Repository {
   type: string;
   full_name: string;
   links: {
-    self: { href: string };
-    html: { href: string };
-    avatar: { href: string };
+    self: Link;
+    html: Link;
+    avatar: Link;
   };
   name: string;
   uuid: string;
+  workspace: string;
+  loading?: boolean;
+  success?: boolean;
+  error?: any;
+  pullRequest?: CreatePullRequestResponse;
+}
+
+export interface CreatePullRequestResponse {
+  branch: string;
+  id: number;
+  name: string;
+  links: {
+    activity: Link;
+    approve: Link;
+    comments: Link;
+    commits: Link;
+    decline: Link;
+    diff: Link;
+    diffstat: Link;
+    html: Link;
+    merge: Link;
+    "request-changes": Link;
+    self: Link;
+    statuses: Link;
+  };
+}
+
+export interface Link {
+  href: string;
 }
 
 export const useRepositoryStore = defineStore("repositories", () => {
-  var unfilteredRepositories: Repository[] = [];
   const repositories: Ref<Repository[]> = ref([]);
-  const favoriteRepos: Ref<string[]> = ref([]);
   const isLoading = ref(false);
+  const urlApi = import.meta.env.VITE_BACKEND_URL;
+  const loginStore = useLoginStore();
+
+  const headers = {
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+    Expires: "0",
+    Authorization: "Bearer " + loginStore.authToken,
+  };
 
   const savedRepos = JSON.parse(
     localStorage.getItem("bitbucket-repositories") ?? "[]"
   ) as Repository[];
 
-  const savedFavoriteRepos = JSON.parse(
-    localStorage.getItem("favorite-repos") ?? "[]"
-  );
-
-  favoriteRepos.value = savedFavoriteRepos;
-
   if (savedRepos.length > 0) {
-    unfilteredRepositories = savedRepos;
+    repositories.value = savedRepos;
   } else {
-    const urlApi = import.meta.env.VITE_BACKEND_URL;
-    const loginStore = useLoginStore();
     isLoading.value = true;
-    var currentPage = 1;
 
-    function loadNewPage() {
-      axios
-        .get<BitBucketRequestI<RepositoryTuple>>(
-          `${urlApi}/repositorie?page=${currentPage}&pagelen=100`,
-          {
-            headers: {
-              Authorization: "Bearer " + loginStore.authToken,
-            },
-          }
-        )
-        .then((response) => {
-          unfilteredRepositories = unfilteredRepositories.concat(
-            response.data.values.map((repoValue) => {
-              return {
-                type: repoValue.repository.type,
-                full_name: repoValue.repository.full_name,
-                links: repoValue.repository.links,
-                name: repoValue.repository.name,
-                uuid: repoValue.repository.uuid,
-              };
-            })
-          );
-          if (response.data.size > unfilteredRepositories.length) {
-            currentPage++;
-            loadNewPage();
-          } else {
-            localStorage.setItem(
-              "bitbucket-repositories",
-              JSON.stringify(unfilteredRepositories)
-            );
-            isLoading.value = false;
-            repositories.value = unfilteredRepositories;
-          }
-        });
-    }
-
-    loadNewPage();
+    axios
+      .get<Repository[]>(`${urlApi}/repositorie/default`, {
+        headers: {
+          Authorization: "Bearer " + loginStore.authToken,
+        },
+      })
+      .then((response) => {
+        repositories.value = response.data;
+        persistRepositories();
+        isLoading.value = false;
+      });
   }
 
-  function persistFavoriteRepos() {
-    localStorage.setItem("favorite-repos", JSON.stringify(favoriteRepos.value));
-  }
-
-  function addFavoriteRepo(uuid: string) {
-    favoriteRepos.value.push(uuid);
-    persistFavoriteRepos();
-  }
-
-  function removeFavoriteRepo(uuid: string) {
-    favoriteRepos.value = favoriteRepos.value.filter(
-      (repoId) => repoId != uuid
+  function persistRepositories() {
+    localStorage.setItem(
+      "bitbucket-repositories",
+      JSON.stringify(repositories.value)
     );
-    persistFavoriteRepos();
   }
 
-  function filterByName(name: string) {
-    if (name != "") {
-      repositories.value = unfilteredRepositories.filter((repo) =>
-        repo.name.toLowerCase().includes(name.toLocaleLowerCase())
-      );
-    } else {
-      repositories.value = unfilteredRepositories;
+  async function createPrForRepository(repository: Repository) {
+    const updatingIndex = repositories.value.indexOf(repository);
+    repositories.value[updatingIndex].loading = true;
+    repositories.value[updatingIndex].error = undefined;
+    repositories.value[updatingIndex].success = false;
+    axios
+      .post<CreatePullRequestResponse[]>(
+        `${urlApi}/repositorie/default/pull-request`,
+        {
+          from: "main",
+          to: "develop",
+          repositorie: repository,
+        },
+        {
+          headers,
+        }
+      )
+      .then((response) => {
+        if (response.data && response.data.length > 0) {
+          const createdPr = response.data
+            .filter((pr) => pr.name == repository.name)
+            .pop();
+          repositories.value[updatingIndex].loading = false;
+          repositories.value[updatingIndex].pullRequest = createdPr;
+          persistRepositories();
+        }
+      })
+      .catch((error) => {
+        repositories.value[updatingIndex].loading = false;
+        repositories.value[updatingIndex].error = error;
+        persistRepositories();
+      });
+  }
+
+  async function declinePullRequest(repository: Repository) {
+    const updatingIndex = repositories.value.indexOf(repository);
+    repositories.value[updatingIndex].loading = true;
+    repositories.value[updatingIndex].error = undefined;
+    repositories.value[updatingIndex].success = false;
+    axios
+      .post(
+        `${urlApi}/repositorie/pull-request/${repository.workspace}/${
+          repository.uuid
+        }/${repository.pullRequest!.id}/decline`,
+        {},
+        {
+          headers,
+        }
+      )
+      .then((response) => {
+        if (response && response.status == 201 && !response.data.error) {
+          repositories.value[updatingIndex].pullRequest = undefined;
+          repositories.value[updatingIndex].loading = false;
+          repositories.value[updatingIndex].success = true;
+          setTimeout(() => {
+            repositories.value[updatingIndex].success = false;
+            persistRepositories();
+          }, 5000);
+        }
+        if (response.data.error) {
+          repositories.value[updatingIndex].loading = false;
+          repositories.value[updatingIndex].error =
+            response.data?.error?.message;
+        }
+      })
+      .catch((error) => {
+        repositories.value[updatingIndex].loading = false;
+        repositories.value[updatingIndex].error = error;
+        persistRepositories();
+      });
+  }
+
+  async function mergePullRequest(repository: Repository) {
+    const updatingIndex = repositories.value.indexOf(repository);
+    repositories.value[updatingIndex].loading = true;
+    repositories.value[updatingIndex].error = undefined;
+    repositories.value[updatingIndex].success = false;
+    axios
+      .post(
+        `${urlApi}/repositorie/pull-request/${repository.workspace}/${
+          repository.uuid
+        }/${repository.pullRequest!.id}/merge`,
+        {},
+        {
+          headers,
+        }
+      )
+      .then((response) => {
+        repositories.value[updatingIndex].loading = false;
+        if (response && response.status == 201 && !response.data.error) {
+          repositories.value[updatingIndex].pullRequest = undefined;
+          repositories.value[updatingIndex].success = true;
+          setTimeout(() => {
+            repositories.value[updatingIndex].success = false;
+            persistRepositories();
+          }, 5000);
+        }
+
+        if (response.data.error) {
+          repositories.value[updatingIndex].loading = false;
+          repositories.value[updatingIndex].error =
+            response.data?.error?.message;
+        }
+      })
+      .catch((error) => {
+        repositories.value[updatingIndex].loading = false;
+        repositories.value[updatingIndex].error = error;
+        persistRepositories();
+      });
+  }
+
+  async function createPullRequestForAllRepos() {
+    for (const repo of repositories.value) {
+      if (!repo.pullRequest) {
+        createPrForRepository(repo);
+      }
     }
   }
 
-  function toggleFavoritesFilter(on: boolean) {
-    if (on) {
-      repositories.value = unfilteredRepositories.filter((repo) =>
-        favoriteRepos.value.includes(repo.uuid)
-      );
-    } else {
-      repositories.value = unfilteredRepositories;
+  async function mergeAllPrs() {
+    for (const repo of repositories.value) {
+      if (repo.pullRequest) {
+        mergePullRequest(repo);
+      }
+    }
+  }
+
+  async function declineAllPrs() {
+    for (const repo of repositories.value) {
+      if (repo.pullRequest) {
+        declinePullRequest(repo);
+      }
     }
   }
 
   return {
     isLoading,
     repositories,
-    favoriteRepos,
-    addFavoriteRepo,
-    removeFavoriteRepo,
-    filterByName,
-    toggleFavoritesFilter,
+    createPrForRepository,
+    declinePullRequest,
+    mergePullRequest,
+    createPullRequestForAllRepos,
+    mergeAllPrs,
+    declineAllPrs
   };
 });
