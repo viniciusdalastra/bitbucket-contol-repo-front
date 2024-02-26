@@ -86,7 +86,11 @@ export const useRepositoryStore = defineStore("repositories", () => {
     );
   }
 
-  async function createPrForRepository(repository: Repository) {
+  async function createPrForRepository(
+    repository: Repository,
+    branchFrom = "main",
+    branchTo = "develop"
+  ) {
     const updatingIndex = repositories.value.indexOf(repository);
     repositories.value[updatingIndex].loading = true;
     repositories.value[updatingIndex].error = undefined;
@@ -95,8 +99,8 @@ export const useRepositoryStore = defineStore("repositories", () => {
       .post<CreatePullRequestResponse[]>(
         `${urlApi}/repositorie/default/pull-request`,
         {
-          from: "main",
-          to: "develop",
+          from: branchFrom,
+          to: branchTo,
           repositorie: repository,
         },
         {
@@ -197,10 +201,13 @@ export const useRepositoryStore = defineStore("repositories", () => {
       });
   }
 
-  async function createPullRequestForAllRepos() {
+  async function createPullRequestForAllRepos(
+    branchFrom = "main",
+    branchTo = "develop"
+  ) {
     for (const repo of repositories.value) {
       if (!repo.pullRequest) {
-        createPrForRepository(repo);
+        createPrForRepository(repo, branchFrom, branchTo);
       }
     }
   }
@@ -229,6 +236,6 @@ export const useRepositoryStore = defineStore("repositories", () => {
     mergePullRequest,
     createPullRequestForAllRepos,
     mergeAllPrs,
-    declineAllPrs
+    declineAllPrs,
   };
 });

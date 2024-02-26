@@ -6,6 +6,15 @@ import { ref } from 'vue';
 const repositoryStore = useRepositoryStore();
 const snackbar = ref(false);
 const text = ref('');
+const branches = ['develop', 'main', 'homolog'];
+const branchesFrom = ref(branches);
+
+const branchFrom = ref('main');
+const branchTo = ref('develop');
+
+const branchesTo = computed(() =>
+    branches.filter((b) => b != branchFrom.value)
+);
 
 const hasOneOrMorePrs = computed(() =>
     repositoryStore.repositories.some((repo) => repo.pullRequest != null)
@@ -17,7 +26,12 @@ const hasOneOrMoreLoadingRepos = computed(() =>
 
 
 function onClickCreatePr(repository: Repository) {
-    repositoryStore.createPrForRepository(repository);
+    if (branchFrom.value && branchTo.value) {
+        repositoryStore.createPrForRepository(repository, branchFrom.value, branchTo.value);
+    } else {
+        text.value = 'Informe as branches de origem e destino corretamente!';
+        snackbar.value = true;
+    }
 }
 
 function onClickMergePr(repository: Repository) {
@@ -48,19 +62,36 @@ function onClickDeclineAllPrs() {
 }
 
 function onClickCreateAllPrs() {
-    repositoryStore.createPullRequestForAllRepos();
+    if (branchFrom.value && branchTo.value) {
+        repositoryStore.createPullRequestForAllRepos(branchFrom.value, branchTo.value);
+    } else {
+        text.value = 'Informe as branches de origem e destino corretamente!';
+        snackbar.value = true;
+    }
+}
+
+function onChangeBranchFrom() {
+    branchTo.value = '';
 }
 
 </script>
 <template>
     <v-container class="general-actions d-flex">
-        <v-btn v-if="hasOneOrMorePrs" :disabled="hasOneOrMoreLoadingRepos" @click="onClickMergeAllPrs()"
-            style="margin-left: 10px;" color="green" prepend-icon="merge">Merge All</v-btn>
-        <v-btn v-if="hasOneOrMorePrs" :disabled="hasOneOrMoreLoadingRepos" @click="onClickDeclineAllPrs()"
-            style="margin-left: 10px;" color="red" prepend-icon="thumb_down">Decline
-            All</v-btn>
-        <v-btn :disabled="hasOneOrMoreLoadingRepos" @click="onClickCreateAllPrs()" style="margin-left: 10px;" color="blue"
-            prepend-icon="sync">Sync All</v-btn>
+        <div class="branch-selector">
+            <v-select @update:modelValue="onChangeBranchFrom" variant="solo" label="From" v-model="branchFrom"
+                :items="branchesFrom"></v-select>
+            <v-icon icon="arrow_right_alt" color="green"></v-icon>
+            <v-select variant="solo" label="To" v-model="branchTo" :items="branchesTo"></v-select>
+        </div>
+        <div class="buttons">
+            <v-btn v-if="hasOneOrMorePrs" :disabled="hasOneOrMoreLoadingRepos" @click="onClickMergeAllPrs()"
+                style="margin-left: 10px;" color="green" prepend-icon="merge">Merge All</v-btn>
+            <v-btn v-if="hasOneOrMorePrs" :disabled="hasOneOrMoreLoadingRepos" @click="onClickDeclineAllPrs()"
+                style="margin-left: 10px;" color="red" prepend-icon="thumb_down">Decline
+                All</v-btn>
+            <v-btn :disabled="hasOneOrMoreLoadingRepos" @click="onClickCreateAllPrs()" style="margin-left: 10px;"
+                color="blue" prepend-icon="sync">Sync All</v-btn>
+        </div>
     </v-container>
     <v-container class="repositories-container justify-center">
         <v-sheet class="repository-sheet" v-for="item in repositoryStore.repositories" :elevation="3" rounded :height="70"
@@ -102,7 +133,22 @@ function onClickCreateAllPrs() {
 .general-actions {
     margin-top: 50px;
     width: 90%;
+    display: flex;
+    align-items: center;
+    flex-direction: row;
 
+    .branch-selector {
+        display: flex;
+        width: 320px;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .buttons {
+        display: flex;
+        align-items: center;
+        padding-bottom: 20px;
+    }
 }
 
 .repositories-container {
